@@ -33,6 +33,7 @@ document.currentScript.parentNode.insertBefore(link, document.currentScript);
 <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png">
 <link rel="apple-touch-icon" sizes="120x120" href="icons/icon-120.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="config.js"></script>
 <title>Proloco Julin</title>
 <style>
 :root{
@@ -382,7 +383,8 @@ self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r
 
 <script>
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const ADMIN_PASS = 'julin2024';
+// Legge da config.js — fallback ai valori hardcoded solo in demo
+const ADMIN_PASS = (typeof CONFIG !== 'undefined' ? CONFIG.adminPassword : null) || 'julin2024';
 const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 let currentDate = new Date();
 let viewYear = currentDate.getFullYear(), viewMonth = currentDate.getMonth();
@@ -397,7 +399,12 @@ let events = [
 ];
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
-function getSbConfig(){const url=localStorage.getItem('sb_url')||'',key=localStorage.getItem('sb_key')||'';return{url,key,ready:!!(url&&key)};}
+// Legge da config.js, poi dal localStorage (admin panel), poi vuoto
+function getSbConfig(){
+  const url = (typeof CONFIG !== 'undefined' && CONFIG.supabaseUrl) || localStorage.getItem('sb_url') || '';
+  const key = (typeof CONFIG !== 'undefined' && CONFIG.supabaseKey) || localStorage.getItem('sb_key') || '';
+  return { url, key, ready: !!(url && key) };
+}
 async function sbFetch(path,opts={}){
   const{url,key}=getSbConfig();
   const r=await fetch(`${url}/rest/v1/${path}`,{headers:{'Content-Type':'application/json','apikey':key,'Authorization':`Bearer ${key}`,'Prefer':'return=representation',...(opts.headers||{})},...opts});
@@ -433,12 +440,10 @@ async function sbSaveRsvp(eventId,rsvp){
 
 // ─── RESEND EMAIL ─────────────────────────────────────────────────────────────
 function getResendConfig(){
-  return{
-    key:localStorage.getItem('resend_key')||'',
-    from:localStorage.getItem('resend_from')||'',
-    admin:localStorage.getItem('resend_admin')||'',
-    ready:!!(localStorage.getItem('resend_key')&&localStorage.getItem('resend_from'))
-  };
+  // from e admin da config.js, la API key non serve più qui (sta su Netlify)
+  const from  = (typeof CONFIG !== 'undefined' && CONFIG.resendFrom)  || localStorage.getItem('resend_from')  || '';
+  const admin = (typeof CONFIG !== 'undefined' && CONFIG.resendAdmin) || localStorage.getItem('resend_admin') || '';
+  return { from, admin, ready: !!from };
 }
 function saveResendConfig(){
   const key=document.getElementById('resend-key').value.trim();
@@ -502,34 +507,24 @@ async function sendRsvpEmail(ev, rsvp){
 </div>
 </body></html>`;
 
-  // Email all'utente
+  const adminHtml = `<p><b>${rsvp.name}</b> (${rsvp.email}) si è iscritto a <b>${ev.title}</b> — ${dateStr}.<br>Totale partecipanti: ${(ev.attendees||[]).length}</p>`;
+
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    // Chiama la Netlify Function (proxy sicuro per Resend)
+    const res = await fetch('/.netlify/functions/send-email', {
       method: 'POST',
-      headers: {'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: cfg.from,
-        to: [rsvp.email],
+        to: rsvp.email,
         subject: `✅ Sei iscritto a "${ev.title}" — Proloco Julin`,
         html: htmlBody,
-        attachments: [{filename:`${ev.title.replace(/\s+/g,'_')}.ics`, content: icsBase64}]
+        attachments: [{ filename: `${ev.title.replace(/\s+/g,'_')}.ics`, content: icsBase64 }],
+        adminEmail: cfg.admin || null,
+        adminHtml,
       })
     });
-    if(!res.ok) throw new Error(await res.text());
-
-    // Copia admin (se configurata)
-    if(cfg.admin){
-      await fetch('https://api.resend.com/emails',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},
-        body:JSON.stringify({
-          from:cfg.from,to:[cfg.admin],
-          subject:`📋 Nuovo RSVP: ${rsvp.name} per "${ev.title}"`,
-          html:`<p><b>${rsvp.name}</b> (${rsvp.email}) si è iscritto all'evento <b>${ev.title}</b> del ${dateStr}.</p><p>Totale partecipanti: ${(ev.attendees||[]).length}</p>`
-        })
-      });
-    }
-    return true;
+    return res.ok;
   } catch(e) {
     console.warn('Email send failed:', e);
     return false;
