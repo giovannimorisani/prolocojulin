@@ -1,0 +1,14 @@
+[functions]
+  directory = "netlify/functions"
+```
+
+**5. Struttura file da caricare su GitHub:**
+```
+├── index.html
+├── config.js           ← Supabase URL + anon key + from/admin email
+├── netlify.toml        ← dice a Netlify dove sono le functions
+├── netlify/
+│   └── functions/
+│       └── send-email.js
+├── CNAME
+└── sw.js
